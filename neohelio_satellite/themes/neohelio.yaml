@@ -1,0 +1,75 @@
+# NeoHelio Aurora theme for Home Assistant.
+#
+# Activates inside HA when the user picks "NeoHelio" from User Profile →
+# Themes. The Satellite add-on installs this file into HA's themes/ folder
+# on first run (via the run.sh entrypoint, idempotent).
+#
+# Palette pulled from NeoHelio's DESIGN.md to keep brand consistency
+# between the HA UI and the platform proper:
+#   primary       #0a0e1a   slate-darkness of deep space
+#   accent        #f59e0b   solar amber — CTAs, active states
+#   accent-2      #7c5cff   aurora violet — secondary accent
+#   surface-card  #1a2038   raised dark surfaces
+#   surface-low   #11172a   recessed dark surfaces
+NeoHelio:
+  # ── Brand surfaces ──
+  primary-color:                   "#f59e0b"
+  accent-color:                    "#f59e0b"
+  light-primary-color:             "#fbbf24"
+  dark-primary-color:              "#d97706"
+
+  # ── Backgrounds ──
+  primary-background-color:        "#0a0e1a"
+  secondary-background-color:      "#11172a"
+  card-background-color:           "#1a2038"
+  ha-card-background:              "#1a2038"
+  ha-card-border-color:            "rgba(245,158,11,0.18)"
+  ha-card-border-radius:           "12px"
+  ha-card-box-shadow:              "0 4px 12px rgba(0,0,0,0.4)"
+
+  # ── Text ──
+  primary-text-color:              "#f1f5f9"
+  secondary-text-color:            "#94a3b8"
+  text-primary-color:              "#0a0e1a"   # text *on* primary buttons (amber bg)
+  disabled-text-color:             "#475569"
+
+  # ── State colours ──
+  state-icon-active-color:         "#f59e0b"
+  state-icon-color:                "#94a3b8"
+  paper-item-icon-active-color:    "#f59e0b"
+  paper-item-icon-color:           "#94a3b8"
+
+  # ── App / chrome ──
+  app-header-background-color:     "#050812"
+  app-header-text-color:           "#f59e0b"
+  sidebar-background-color:        "#0a0e1a"
+  sidebar-icon-color:              "#94a3b8"
+  sidebar-text-color:              "#cbd5e1"
+  sidebar-selected-background-color: "rgba(245,158,11,0.10)"
+  sidebar-selected-icon-color:     "#f59e0b"
+  sidebar-selected-text-color:     "#f59e0b"
+
+  # ── Switches / toggles ──
+  switch-checked-color:            "#f59e0b"
+  switch-unchecked-color:          "#475569"
+  switch-checked-button-color:     "#fbbf24"
+  switch-checked-track-color:      "rgba(245,158,11,0.40)"
+
+  # ── Sliders ──
+  paper-slider-active-color:       "#f59e0b"
+  paper-slider-knob-color:         "#fbbf24"
+  paper-slider-secondary-color:    "rgba(245,158,11,0.30)"
+
+  # ── Dividers & inputs ──
+  divider-color:                   "rgba(148,163,184,0.18)"
+  input-fill-color:                "#0a0e1a"
+  input-ink-color:                 "#f1f5f9"
+  input-label-ink-color:           "#94a3b8"
+  input-idle-line-color:           "rgba(148,163,184,0.30)"
+  input-hover-line-color:          "#f59e0b"
+
+  # ── Status badges ──
+  label-badge-red:                 "#ef4444"
+  label-badge-yellow:              "#f59e0b"
+  label-badge-green:               "#22c55e"
+  label-badge-blue:                "#3b82f6"

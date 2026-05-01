@@ -1,0 +1,25 @@
+configuration:
+  site_token:
+    name: Site token
+    description: >-
+      Per-site bearer token issued by NeoHelio onboarding. Paste from the
+      Satellite installation page in NeoHelio admin.
+  gateway_serial:
+    name: Gateway serial
+    description: >-
+      Stable identifier for this Satellite installation. Issued together
+      with the site token.
+  neohelio_url:
+    name: NeoHelio API URL
+    description: >-
+      Cloud-side ingestion endpoint. Default points at NeoHelio prod —
+      override only for staging or self-hosted NeoHelio deployments.
+  poll_interval_sec:
+    name: Poll interval (seconds)
+    description: >-
+      How often to flush accumulated entity readings to the cloud. Lower =
+      more granular dashboards, higher = lower bandwidth. Default 5s.
+  log_level:
+    name: Log level
+    description: Add-on log verbosity.
+network: {}

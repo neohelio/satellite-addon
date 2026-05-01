@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+# The addon's source modules live in app/ and import each other by short
+# name (e.g. `from blueprint import ...`), the same way they will at runtime
+# inside the HA Supervisor container. Adding app/ to pythonpath lets pytest
+# collect the same import shape during tests.
+pythonpath = ["app"]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+filterwarnings = [
+    "error",
+]
