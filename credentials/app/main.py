@@ -146,20 +146,23 @@ def register_with_supervisor(access_token: str) -> None:
     credential. Subsequent `docker pull` of addon images from
     REGISTRY_HOST will use these credentials."""
     log.debug("registering credentials with HA Supervisor for %s", REGISTRY_HOST)
-    # Supervisor accepts the standard Docker config format: a `registries`
-    # object keyed by host, with username + password. For OAuth tokens
-    # against Artifact Registry, the convention is username=oauth2accesstoken,
-    # password=<the token itself>.
+    # Supervisor's POST /docker/registries body is a FLAT host→creds map —
+    # NOT wrapped in `{"registries": {...}}`. The schema (Supervisor source:
+    # supervisor/api/docker.py `SCHEMA_DOCKER_REGISTRY`) is roughly
+    #   vol.Schema({str: {ATTR_USERNAME: str, ATTR_PASSWORD: str}})
+    # so any extra key (including "registries") gets rejected with
+    # "extra keys not allowed".
+    #
+    # For OAuth tokens against Artifact Registry, the convention is
+    # username=oauth2accesstoken, password=<the token itself>.
     http_request(
         "POST",
         SUPERVISOR_REGISTRIES_ENDPOINT,
         headers={"Authorization": f"Bearer {SUPERVISOR_TOKEN}"},
         body={
-            "registries": {
-                REGISTRY_HOST: {
-                    "username": "oauth2accesstoken",
-                    "password": access_token,
-                },
+            REGISTRY_HOST: {
+                "username": "oauth2accesstoken",
+                "password": access_token,
             },
         },
     )
