@@ -51,8 +51,12 @@ logging.basicConfig(
 )
 log = logging.getLogger("neohelio-credentials")
 
+# `neohelio_url` is the API host (`https://api.neohelio.io` in prod, the
+# api-gateway Cloud Run URL in dev). api-gateway mounts the edge-gateways
+# routes under `/api/v1/edge-gateways/*` and proxies them to core. Operators
+# set `neohelio_url` to the host WITHOUT the `/api` suffix; we add it here.
 REGISTRY_TOKEN_ENDPOINT = (
-    f"{NEOHELIO_URL}/v1/edge-gateways/{GATEWAY_SERIAL}/registry-token"
+    f"{NEOHELIO_URL}/api/v1/edge-gateways/{GATEWAY_SERIAL}/registry-token"
 )
 SUPERVISOR_REGISTRIES_ENDPOINT = f"{SUPERVISOR_URL}/docker/registries"
 
