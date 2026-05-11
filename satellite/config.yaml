@@ -16,7 +16,7 @@
 # /etc/docker/config.json before this addon is installed.
 
 name: NeoHelio Satellite
-version: "0.1.5"
+version: "0.1.6"
 slug: neohelio_satellite
 description: Pushes Home Assistant telemetry to NeoHelio for fleet-level performance, financial, and SLA analytics.
 url: https://github.com/neohelio/satellite-addon
@@ -40,6 +40,7 @@ options:
   gateway_serial: ""
   neohelio_url: "https://api.neohelio.io"
   ingest_url: ""
+  realtime_relay_url: ""
   poll_interval_sec: 5
   log_level: "info"
 schema:
@@ -47,6 +48,10 @@ schema:
   gateway_serial: str
   neohelio_url: url
   ingest_url: str?
+  # Live tee (Phase 1). Empty = derive wss:// from neohelio_url. In dev
+  # where the relay is a separate Cloud Run service, paste its wss:// URL
+  # here. "disabled" skips the live tee entirely.
+  realtime_relay_url: str?
   poll_interval_sec: int(1,300)
   log_level: list(debug|info|warning|error)
 panel_icon: mdi:satellite-variant
