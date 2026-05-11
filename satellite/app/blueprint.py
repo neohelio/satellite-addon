@@ -21,20 +21,11 @@ Blueprint shape (returned by GET /v1/edge-gateways/<serial>/blueprint):
       "device_external_id": "deye-2787155991",
       "device_type": "INVERTER",
       "field": "battery_soc_pct",       // → telemetry_readings column
-      "transform": null,                // optional: { scale, offset, unit_in, unit_out }
-      "aggregation": "last"             // 'last' | 'avg' | 'max' | 'min' | 'sum' (#185)
+      "transform": null                 // optional: { scale, offset, unit_in, unit_out }
     },
     ...
   ]
 }
-
-Per-window aggregation rules (issue #185):
-  - 'last' (default): preserve historical HA-path behaviour — snapshot returns
-    the most recent value, the bucket is NOT cleared between flushes.
-  - 'avg' / 'max' / 'min' / 'sum': accumulate over the poll window, snapshot
-    returns the aggregate and resets the accumulator. Used for SunSpec mode
-    where poll_interval is short (5s native) but emit cadence is coarse
-    (300s default).
 """
 from __future__ import annotations
 import asyncio
@@ -46,9 +37,6 @@ import aiohttp
 log = logging.getLogger("blueprint")
 
 
-VALID_AGGREGATIONS = ('last', 'avg', 'max', 'min', 'sum')
-
-
 @dataclass
 class EntitySpec:
     entity_id: str
@@ -57,10 +45,6 @@ class EntitySpec:
     field: str
     scale: float = 1.0
     offset: float = 0.0
-    # #185: per-field rolling aggregation over the poll window. 'last' is the
-    # historical behaviour and stays the default for HA-path backwards
-    # compatibility. SunSpec-mode blueprints set this per-field.
-    aggregation: str = 'last'
 
 
 @dataclass
@@ -84,13 +68,6 @@ def _parse(data: dict) -> Blueprint:
     entities = []
     for e in raw_entities:
         t = e.get("transform") or {}
-        agg = e.get("aggregation", "last")
-        if agg not in VALID_AGGREGATIONS:
-            log.warning(
-                "blueprint entity %s has unsupported aggregation %r; falling back to 'last'",
-                e.get("entity_id", "<unknown>"), agg,
-            )
-            agg = "last"
         entities.append(EntitySpec(
             entity_id=e["entity_id"],
             device_external_id=e["device_external_id"],
@@ -98,7 +75,6 @@ def _parse(data: dict) -> Blueprint:
             field=e["field"],
             scale=float(t.get("scale", 1.0)),
             offset=float(t.get("offset", 0.0)),
-            aggregation=agg,
         ))
     return Blueprint(
         schema_version=int(data.get("schema_version", 1)),

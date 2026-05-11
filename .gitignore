@@ -1,0 +1,9 @@
+# Build artefacts
+**/__pycache__/
+**/*.pyc
+**/data/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

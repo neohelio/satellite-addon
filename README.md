@@ -1,58 +1,44 @@
-# NeoHelio Satellite — Home Assistant Add-on
+# NeoHelio Add-ons for Home Assistant
 
-Streams Home Assistant telemetry to [NeoHelio](https://neohelio.io) for
-fleet-level performance, financial, and SLA analytics.
+The official Home Assistant add-on repository for the **NeoHelio energy-performance platform**.
 
-## Add this repository to Home Assistant
+## Available add-ons
 
-In Home Assistant: **Settings → Add-ons → Add-on store → ⋮ (top right)
-→ Repositories → Add**:
+- **[NeoHelio Credentials](credentials/)** — bootstrap addon. Fetches short-lived Artifact Registry pull tokens from NeoHelio and registers them with HA Supervisor. Install **before** Satellite. Builds locally on the Pi (no auth required to pull this one).
+- **[NeoHelio Satellite](satellite/)** — pushes Home Assistant telemetry to NeoHelio for fleet-level performance, financial, and SLA analytics. Pulled as a pre-built private image — install **after** Credentials is running.
 
-```
-https://github.com/neohelio/satellite-addon
-```
+## Install
 
-The **NeoHelio Satellite** add-on appears in the store. Install it,
-configure with your site token + gateway serial from NeoHelio site
-settings, and start.
+In Home Assistant:
+
+1. **Settings → Apps → ⋮ (top right) → Repositories**
+2. Paste this URL:
+   ```
+   https://github.com/neohelio/satellite-addon
+   ```
+3. Click **Add**.
+4. Both **NeoHelio Credentials** and **NeoHelio Satellite** now appear in your Add-on Store.
+5. **Install NeoHelio Credentials first.** Click it → Install → open the **Configuration** tab and paste your **site token** + **gateway serial** from your NeoHelio onboarding email → **Start**. Confirm logs show `registered credentials with HA Supervisor`.
+6. **Then install NeoHelio Satellite.** Paste the *same* values you used for Credentials → **Start**. The Satellite will register with NeoHelio cloud, fetch its blueprint, and start streaming telemetry.
+
+If the Satellite install fails with `denied: permission denied` or similar pull errors, the Credentials addon either isn't running yet or hasn't successfully registered its token with Supervisor. Check its logs first.
 
 ## What it does
 
-The add-on opens a WebSocket to Home Assistant and streams entity
-state changes to NeoHelio. Per-gateway *Blueprints* (managed in
-NeoHelio admin) declare which HA entities feed which NeoHelio
-telemetry fields, so the add-on stays vendor-agnostic — Solarman,
-SunSpec, Goodwe, and so on are all just different blueprints
-against the same code.
+NeoHelio Satellite subscribes to your HA instance's state-change events, maps configured entities (e.g. `sensor.deye_battery_soc`) to NeoHelio's telemetry schema using a cloud-pushed Blueprint, and forwards readings to the NeoHelio cloud over HTTPS. Buffers locally during outages and drains automatically when connectivity returns.
 
-Telemetry is buffered locally and shipped to NeoHelio's edge
-ingestion endpoint with a per-site HMAC token.
+This means:
 
-## Adding to a NeoHelio site
+- Any device HA can read, NeoHelio can ingest. Solarman/Deye/Sunsynk, SMA, Fronius, Pylontech BMS, Tasmota, Shelly, Zigbee thermostats, EV chargers — anything with an HA integration becomes a NeoHelio data source.
+- One Bronze contract for both prosumer (HA) and commercial (Moxa) tiers.
+- Branded HA frontend theme installed alongside the add-on.
 
-The add-on requires a NeoHelio site to be set up first:
+## Support
 
-1. NeoHelio admin → site settings → Data Sources → Add → **Orbit Satellite**
-2. Mint a site token; copy it
-3. Note the gateway serial NeoHelio assigns
-4. Paste both into this add-on's configuration in HA
-5. Start the add-on
+- **Documentation**: https://docs.neohelio.io/satellite
+- **Issues**: https://github.com/neohelio/satellite-addon/issues
+- **NeoHelio account / onboarding**: https://app.neohelio.io
 
-Once running, the add-on registers with NeoHelio and pulls down its
-blueprint. From the blueprint editor in NeoHelio, you can apply a
-template (e.g. *Deye Solarman — single-phase*) to wire common HA
-integrations to NeoHelio fields automatically.
+## Licence
 
-## Development
-
-The canonical source for this add-on lives in the
-[NeoHelio monorepo](https://github.com/neohelio/neohelio.io) at
-`edge/satellite-addon/`. This repo is the distribution surface for
-HA's add-on store; it's a copy of the monorepo subtree.
-
-Pull requests welcome on either the monorepo or this repo (the
-monorepo path is the one we sync from).
-
-## License
-
-Proprietary — © NeoHelio. Contact <hello@neohelio.io>.
+Proprietary — © 2026 NeoHelio Pty Ltd. The add-on is distributed for use only with a valid NeoHelio account.

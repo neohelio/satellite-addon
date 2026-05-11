@@ -1,0 +1,54 @@
+# NeoHelio Satellite — Home Assistant Add-on manifest (DISTRIBUTION).
+# https://developers.home-assistant.io/docs/add-ons/configuration/
+#
+# This is the customer-facing manifest. HA Supervisor clones the repo this
+# lives in and reads this file to learn how to install the addon. Source for
+# the image (Dockerfile, Python app, themes) lives in edge/satellite-addon/
+# in the private monorepo — built + pushed by ./scripts/build-satellite-addon.sh.
+#
+# The `image:` field below tells HA Supervisor to pull pre-built images from
+# private Artifact Registry instead of building from source on the customer's
+# Pi. The `{arch}` placeholder is substituted with the host's architecture
+# at pull time (aarch64 → ...satellite-aarch64, amd64 → ...satellite-amd64).
+#
+# Pulling these images requires authentication — the bootstrap addon
+# (neohelio_credentials) writes a short-lived Artifact Registry token to
+# /etc/docker/config.json before this addon is installed.
+
+name: NeoHelio Satellite
+version: "0.1.5"
+slug: neohelio_satellite
+description: Pushes Home Assistant telemetry to NeoHelio for fleet-level performance, financial, and SLA analytics.
+url: https://github.com/neohelio/satellite-addon
+image: africa-south1-docker.pkg.dev/neohelio-dev/addons/satellite-{arch}
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: services
+boot: auto
+hassio_api: true
+homeassistant_api: true
+host_network: false
+ports: {}
+# Mount HA's config folder so the add-on can drop the NeoHelio frontend
+# theme into /config/themes/ on first start. Read+write.
+map:
+  - config:rw
+options:
+  site_token: ""
+  gateway_serial: ""
+  neohelio_url: "https://api.neohelio.io"
+  ingest_url: ""
+  poll_interval_sec: 5
+  log_level: "info"
+schema:
+  site_token: str
+  gateway_serial: str
+  neohelio_url: url
+  ingest_url: str?
+  poll_interval_sec: int(1,300)
+  log_level: list(debug|info|warning|error)
+panel_icon: mdi:satellite-variant
+panel_title: NeoHelio
+ingress: false
