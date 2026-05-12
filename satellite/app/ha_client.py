@@ -13,6 +13,7 @@ import logging
 import random
 from collections.abc import Callable, Awaitable
 
+import aiohttp
 import websockets
 
 log = logging.getLogger("ha")
@@ -24,6 +25,52 @@ class HassWebsocket:
         self._token = token
         self._on_state_change = on_state_change
         self._msg_id = 0
+
+    async def request_state_snapshot(self) -> int:
+        """Force a fresh full-state snapshot from HA outside the WS connection.
+        Each state is fed through `on_state_change` exactly as the initial
+        connect path does. Used after a blueprint refresh so newly-mapped
+        entities flow through the bucket + live tee immediately, instead of
+        waiting for each one's next `state_changed` event in HA — which for
+        slow-moving entities (today_*kwh accumulators, temperatures,
+        voltages) could be minutes or hours.
+
+        Returns the count of states fed through. REST-only — does NOT touch
+        the WS connection (which may be reconnecting). Uses the same
+        Supervisor proxy + Long-Lived token as the WS path."""
+        # Derive REST base from WS url: ws[s]://supervisor/core/websocket
+        # → http[s]://supervisor/core. Same transform as discovery.py.
+        base = self._url.rstrip("/").replace("ws://", "http://").replace("wss://", "https://")
+        if base.endswith("/websocket"):
+            base = base[: -len("/websocket")]
+        headers = {"Authorization": f"Bearer {self._token}"}
+        timeout = aiohttp.ClientTimeout(total=15)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as s, s.get(
+                f"{base}/api/states", headers=headers,
+            ) as r:
+                if r.status >= 400:
+                    log.warning("re-snapshot: HA /api/states returned %d", r.status)
+                    return 0
+                states = await r.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
+            log.warning("re-snapshot: HA /api/states failed: %s", e)
+            return 0
+        if not isinstance(states, list):
+            return 0
+        count = 0
+        for st in states:
+            if not isinstance(st, dict): continue
+            eid = st.get("entity_id")
+            val = st.get("state")
+            if eid and val is not None:
+                try:
+                    await self._on_state_change(eid, val, st)
+                    count += 1
+                except Exception as e:  # noqa: BLE001
+                    log.debug("re-snapshot: handler raised on %s: %s", eid, e)
+        log.info("re-snapshot complete: %d entities fed", count)
+        return count
 
     async def run_forever(self) -> None:
         backoff = 1.0

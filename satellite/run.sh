@@ -26,6 +26,7 @@ export NEOHELIO_SITE_TOKEN="$(bashio::config 'site_token')"
 export NEOHELIO_GATEWAY_SERIAL="$(bashio::config 'gateway_serial')"
 export NEOHELIO_URL="$(bashio::config 'neohelio_url')"
 export NEOHELIO_INGEST_URL="$(bashio::config 'ingest_url')"
+export NEOHELIO_REALTIME_RELAY_URL="$(bashio::config 'realtime_relay_url')"
 export NEOHELIO_POLL_INTERVAL_SEC="$(bashio::config 'poll_interval_sec')"
 export NEOHELIO_LOG_LEVEL="$(bashio::config 'log_level')"
 

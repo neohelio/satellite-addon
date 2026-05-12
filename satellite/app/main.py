@@ -21,7 +21,9 @@ import aiohttp
 
 import config
 from blueprint import Blueprint, BlueprintCache
+from discovery import DiscoveryLoop
 from ha_client import HassWebsocket
+from live_uplink import LiveUplink
 from mapper import StateBucket
 from outbox import Outbox
 from uplink import Uplink
@@ -42,7 +44,7 @@ async def _register_with_cloud(settings: config.Settings) -> None:
     payload = {
         "gateway_serial": settings.gateway_serial,
         "agent": "satellite-addon",
-        "agent_version": "0.1.0",
+        "agent_version": "0.1.7",
         "registered_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     headers = {
@@ -85,7 +87,7 @@ async def main_async() -> None:
     _setup_logging(settings.log_level)
     log = logging.getLogger("main")
 
-    log.info("NeoHelio Satellite v0.1.0 — gateway=%s url=%s",
+    log.info("NeoHelio Satellite v0.1.7 — gateway=%s url=%s",
              settings.gateway_serial, settings.neohelio_url)
 
     # Initial registration; non-fatal so we keep running even if cloud is down.
@@ -111,12 +113,33 @@ async def main_async() -> None:
 
     bucket = StateBucket(bp)
 
+    # Live tee — wss to services/realtime-relay. Disabled silently when no
+    # relay URL is configured (dev environments without the relay deployed).
+    # The slow NDJSON path runs regardless; the live tee is additive.
+    live: LiveUplink | None = None
+    relay_url = settings.realtime_relay_url
+    if relay_url:
+        live = LiveUplink(relay_url, settings.site_token, settings.gateway_serial)
+        log.info("live tee enabled → %s", relay_url)
+    else:
+        log.info("live tee disabled — no realtime_relay_url configured")
+
     async def on_state(entity_id: str, state_value: str, full_state: dict) -> None:
         # Pick up the latest blueprint without replacing the bucket — keeps
         # accumulated last-seen values intact across blueprint refreshes.
         if bp_cache.current is not None and bp_cache.current is not bucket._bp:  # noqa: SLF001
             bucket.update_blueprint(bp_cache.current)
+        # Slow path: aggregate into the per-device buffer for the 5-min flush.
         bucket.ingest(entity_id, state_value, full_state)
+        # Fast path (additive): tee the raw state event to the relay. Only
+        # entities the blueprint touches — relay traffic shouldn't include
+        # noisy HA internals like sun.sun or device_tracker.*. The blueprint
+        # lookup is the same one bucket.ingest uses; if it ignored the event,
+        # we ignore it for the live tee too.
+        if live is not None and bucket.has_mapping(entity_id):
+            attrs = full_state.get("attributes") if isinstance(full_state, dict) else None
+            last_changed = full_state.get("last_changed") if isinstance(full_state, dict) else None
+            live.enqueue(entity_id, state_value, attrs, last_changed)
 
     ha = HassWebsocket(settings.hass_url, settings.hass_token, on_state)
 
@@ -126,12 +149,18 @@ async def main_async() -> None:
         # full snapshot of all currently-known values. This is the right shape
         # for downstream BQ rows: every row has every mapped field populated,
         # which keeps the Live Dashboard tiles + Power Curve consistent. The
-        # cost is ~16 fields of JSON every poll_interval_sec — negligible.
+        # cost is ~16 fields of JSON every flush_interval_sec — negligible.
         # Tradeoff: an entity that goes truly unavailable keeps emitting its
         # last good value. For Phase 2 polish we can add a freshness threshold
         # (drop fields older than N minutes); not blocking for v1.
+        #
+        # Cadence is read live from bp_cache on every iteration, so an operator
+        # changing flush_interval_sec from the NeoHelio UI takes effect on the
+        # next flush — no addon restart needed. Falls back to the addon option
+        # if no blueprint has loaded yet.
         while True:
-            await asyncio.sleep(settings.poll_interval_sec)
+            interval = bp_cache.current_flush_interval_sec() or settings.poll_interval_sec
+            await asyncio.sleep(interval)
             snap = bucket.snapshot()
             if not snap: continue
             captured = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -143,12 +172,51 @@ async def main_async() -> None:
                 wrapped = {"gateway_serial": settings.gateway_serial, **batch}
                 outbox.enqueue(wrapped)
 
-    log.info("starting background tasks: ha-ws, blueprint-refresh, flush, uplink")
+    # Re-snapshot HA on blueprint change so newly-mapped entities flow through
+    # the bucket + live tee immediately, instead of waiting for each one's
+    # next HA `state_changed`. Slow-moving entities (today_*_kwh accumulators,
+    # voltages, temps) would otherwise be invisible for hours after a mapping
+    # edit. The listener is sync; it schedules the async snapshot.
+    def _on_blueprint_change(new_bp: Blueprint, old_bp: Blueprint | None) -> None:
+        # Skip the very first load — the WS connect path already snapshots
+        # HA at startup. Listener fires on subsequent changes.
+        if old_bp is None:
+            return
+        log.info(
+            "blueprint changed (entities %d→%d, flush_interval %ds→%ds) — re-snapshotting HA",
+            len(old_bp.entities), len(new_bp.entities),
+            old_bp.polling.flush_interval_sec, new_bp.polling.flush_interval_sec,
+        )
+        asyncio.create_task(ha.request_state_snapshot())
+
+    bp_cache.add_change_listener(_on_blueprint_change)
+
+    # Phase 2: HA entity discovery → cloud-side classifier. Runs alongside the
+    # existing slow / live paths. The discovery loop only POSTs when the
+    # manifest hash changes, so periodic re-runs are cheap. Hooks into the
+    # LiveUplink so its `hello` frame carries the latest hash — relay echoes
+    # it to browser subscribers for stale-classification detection.
+    discovery = DiscoveryLoop(
+        hass_url=settings.hass_url,
+        hass_token=settings.hass_token,
+        manifest_url=settings.manifest_url,
+        site_token=settings.site_token,
+    )
+    if live is not None:
+        discovery.add_hash_listener(live.set_manifest_hash)
+
+    tasks = ["ha-ws", "blueprint-refresh", "flush", "uplink", "discovery"]
+    if live is not None:
+        tasks.append("live-uplink")
+    log.info("starting background tasks: %s", ", ".join(tasks))
     async with asyncio.TaskGroup() as tg:
         tg.create_task(ha.run_forever())
         tg.create_task(bp_cache.refresh_loop())
         tg.create_task(flush_loop())
         tg.create_task(uplink.run_forever())
+        tg.create_task(discovery.run_forever())
+        if live is not None:
+            tg.create_task(live.run_forever())
 
 
 def main() -> None:

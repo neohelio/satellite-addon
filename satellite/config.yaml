@@ -1,26 +1,12 @@
-# NeoHelio Satellite — Home Assistant Add-on manifest (DISTRIBUTION).
+# Orbit Satellite — Home Assistant Add-on manifest.
 # https://developers.home-assistant.io/docs/add-ons/configuration/
-#
-# This is the customer-facing manifest. HA Supervisor clones the repo this
-# lives in and reads this file to learn how to install the addon. Source for
-# the image (Dockerfile, Python app, themes) lives in edge/satellite-addon/
-# in the private monorepo — built + pushed by ./scripts/build-satellite-addon.sh.
-#
-# The `image:` field below tells HA Supervisor to pull pre-built images from
-# private Artifact Registry instead of building from source on the customer's
-# Pi. The `{arch}` placeholder is substituted with the host's architecture
-# at pull time (aarch64 → ...satellite-aarch64, amd64 → ...satellite-amd64).
-#
-# Pulling these images requires authentication — the bootstrap addon
-# (neohelio_credentials) writes a short-lived Artifact Registry token to
-# /etc/docker/config.json before this addon is installed.
-
-name: NeoHelio Satellite
-version: "0.1.6"
+# Note: `slug` (and the underlying repo dir) stays as-is so existing HA installs
+# don't see the add-on as removed-and-readded after the rename.
+name: Orbit Satellite
+version: "0.1.7"
 slug: neohelio_satellite
-description: Pushes Home Assistant telemetry to NeoHelio for fleet-level performance, financial, and SLA analytics.
+description: Streams Home Assistant telemetry to Orbit for fleet-level performance, financial, and SLA analytics.
 url: https://github.com/neohelio/satellite-addon
-image: africa-south1-docker.pkg.dev/neohelio-dev/addons/satellite-{arch}
 arch:
   - aarch64
   - amd64
@@ -48,9 +34,10 @@ schema:
   gateway_serial: str
   neohelio_url: url
   ingest_url: str?
-  # Live tee (Phase 1). Empty = derive wss:// from neohelio_url. In dev
-  # where the relay is a separate Cloud Run service, paste its wss:// URL
-  # here. "disabled" skips the live tee entirely.
+  # Live tee (Phase 1). Empty = derive wss:// from neohelio_url (correct in
+  # prod where api + relay share a host). In dev where the relay is a
+  # separate Cloud Run service, paste its wss:// URL here, or "disabled"
+  # to skip the live tee entirely (slow NDJSON path keeps working).
   realtime_relay_url: str?
   poll_interval_sec: int(1,300)
   log_level: list(debug|info|warning|error)

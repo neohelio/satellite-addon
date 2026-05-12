@@ -1,6 +1,6 @@
-# NeoHelio Satellite
+# Orbit Satellite
 
-Home Assistant add-on that pushes telemetry to **NeoHelio** — the energy-performance platform for commercial solar.
+Home Assistant add-on that pushes telemetry to **Orbit** — the energy-performance platform for commercial solar.
 
 This is the source code repository. End-user installation instructions live in [DOCS.md](DOCS.md).
 
@@ -12,7 +12,7 @@ This is the source code repository. End-user installation instructions live in [
 rsync -avz --exclude '.git' --exclude '__pycache__' \
   ./ root@homeassistant.local:/addons/local/neohelio_satellite/
 
-# In HA UI: Settings → Add-ons → ⋮ → Reload, then install "NeoHelio Satellite (local)"
+# In HA UI: Settings → Add-ons → ⋮ → Reload, then install "Orbit Satellite (local)"
 ```
 
 ## Layout
@@ -28,10 +28,10 @@ app/
   ha_client.py          HA WebSocket subscriber with reconnect
   mapper.py             Entity state → CommonTelemetryReading buffer
   outbox.py             SQLite write-ahead buffer
-  uplink.py             NDJSON HTTPS drain to NeoHelio cloud
+  uplink.py             NDJSON HTTPS drain to Orbit cloud
   main.py               TaskGroup orchestration
 translations/en.yaml    Add-on UI strings
-themes/                 NeoHelio HA frontend theme (Stage 1 branding)
+themes/                 Orbit HA frontend theme (Stage 1 branding)
 ```
 
 ## Architecture
@@ -43,13 +43,13 @@ HA WebSocket ──► state_changed events ──► mapper (apply Blueprint)
                              SQLite outbox (per-device buffer, 24h retention)
                                               │
                                               ▼
-                       HTTPS POST NDJSON ──► functions/ingestion/edge (NeoHelio cloud)
+                       HTTPS POST NDJSON ──► functions/ingestion/edge (Orbit cloud)
                                               │
                                               ▼
                           writeTenantBronze ──► bronze-to-silver ──► Live Dashboard
 ```
 
-The add-on is intentionally narrow — it doesn't know what `battery_soc` *means*. The Blueprint, served by NeoHelio cloud per gateway, is the source of truth for which HA entities map to which Silver columns. This lets us evolve the mapping without redeploying the add-on.
+The add-on is intentionally narrow — it doesn't know what `battery_soc` *means*. The Blueprint, served by Orbit cloud per gateway, is the source of truth for which HA entities map to which Silver columns. This lets us evolve the mapping without redeploying the add-on.
 
 ## Licence
 
