@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.8 — 2026-05-12
+
+- **Breaking-good**: the NeoHelio Credentials bootstrap addon is no longer
+  required. The Satellite image is now hosted publicly on GHCR
+  (`ghcr.io/neohelio/satellite-{arch}`) so HA Supervisor can pull it without
+  any registry authentication. Operators who installed the Credentials addon
+  can safely uninstall it after updating Satellite to this version.
+
 ## 0.1.7 — 2026-05-12
 
 - **Feature**: cloud-driven flush cadence. The slow-path NDJSON push

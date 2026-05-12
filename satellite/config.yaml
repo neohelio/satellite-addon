@@ -3,7 +3,7 @@
 # Note: `slug` (and the underlying repo dir) stays as-is so existing HA installs
 # don't see the add-on as removed-and-readded after the rename.
 name: Orbit Satellite
-version: "0.1.7"
+version: "0.1.8"
 slug: neohelio_satellite
 description: Streams Home Assistant telemetry to Orbit for fleet-level performance, financial, and SLA analytics.
 url: https://github.com/neohelio/satellite-addon

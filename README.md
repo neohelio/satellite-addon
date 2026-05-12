@@ -4,8 +4,7 @@ The official Home Assistant add-on repository for the **NeoHelio energy-performa
 
 ## Available add-ons
 
-- **[NeoHelio Credentials](credentials/)** — bootstrap addon. Fetches short-lived Artifact Registry pull tokens from NeoHelio and registers them with HA Supervisor. Install **before** Satellite. Builds locally on the Pi (no auth required to pull this one).
-- **[NeoHelio Satellite](satellite/)** — pushes Home Assistant telemetry to NeoHelio for fleet-level performance, financial, and SLA analytics. Pulled as a pre-built private image — install **after** Credentials is running.
+- **[NeoHelio Satellite](satellite/)** — pushes Home Assistant telemetry to NeoHelio for fleet-level performance, financial, and SLA analytics. Pre-built public image — no registry authentication needed.
 
 ## Install
 
@@ -17,11 +16,13 @@ In Home Assistant:
    https://github.com/neohelio/satellite-addon
    ```
 3. Click **Add**.
-4. Both **NeoHelio Credentials** and **NeoHelio Satellite** now appear in your Add-on Store.
-5. **Install NeoHelio Credentials first.** Click it → Install → open the **Configuration** tab and paste your **site token** + **gateway serial** from your NeoHelio onboarding email → **Start**. Confirm logs show `registered credentials with HA Supervisor`.
-6. **Then install NeoHelio Satellite.** Paste the *same* values you used for Credentials → **Start**. The Satellite will register with NeoHelio cloud, fetch its blueprint, and start streaming telemetry.
+4. **NeoHelio Satellite** now appears in your Add-on Store. Click it → **Install**.
+5. Open the **Configuration** tab and fill in:
+   - **Site token** — from your NeoHelio onboarding email
+   - **Gateway serial** — from your NeoHelio onboarding email
+6. Click **Start**. The add-on will register with NeoHelio cloud, fetch its blueprint, and begin streaming telemetry.
 
-If the Satellite install fails with `denied: permission denied` or similar pull errors, the Credentials addon either isn't running yet or hasn't successfully registered its token with Supervisor. Check its logs first.
+> **Upgrading from v0.1.7 or earlier?** You can uninstall the NeoHelio Credentials add-on after updating Satellite to v0.1.8+. The Credentials add-on handled private-registry authentication that is no longer needed.
 
 ## What it does
 
