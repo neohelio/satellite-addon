@@ -44,7 +44,7 @@ async def _register_with_cloud(settings: config.Settings) -> None:
     payload = {
         "gateway_serial": settings.gateway_serial,
         "agent": "satellite-addon",
-        "agent_version": "0.1.8",
+        "agent_version": "0.1.9",
         "registered_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     headers = {
@@ -87,7 +87,7 @@ async def main_async() -> None:
     _setup_logging(settings.log_level)
     log = logging.getLogger("main")
 
-    log.info("NeoHelio Satellite v0.1.8 — gateway=%s url=%s",
+    log.info("NeoHelio Satellite v0.1.9 — gateway=%s url=%s",
              settings.gateway_serial, settings.neohelio_url)
 
     # Initial registration; non-fatal so we keep running even if cloud is down.

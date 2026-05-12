@@ -1,16 +1,21 @@
 """HA entity discovery — Phase 2.
 
-Calls Home Assistant's REST API for the four sources we care about:
+Fetches four data sources from Home Assistant:
 
-  • /api/states                            current value + attributes for every entity
-  • /api/config/device_registry/list       physical device groupings
-  • /api/config/entity_registry/list       entity → integration_of_origin mapping
-  • /api/services                          available service domains (for Phase 3 controls)
+  • /api/states                (REST)   current value + attributes for every entity
+  • config/entity_registry/list (WS)   entity → integration_of_origin + device_id
+  • config/device_registry/list (WS)   ha_device_id → manufacturer / model
+  • /api/services              (REST)   available service domains (Phase 3 controls)
+
+The entity and device registries are WebSocket-only commands in current HA —
+their REST endpoints (/api/config/…/list) were removed. _fetch_registry_via_ws
+opens a short-lived WS connection, authenticates, sends both commands, collects
+results, and closes. States and services continue to use the REST API.
 
 Builds a "manifest" of every HA entity the gateway knows about — entity_id,
 friendly_name, device_class, unit_of_measurement, integration_platform,
-ha_device_id, ha_device_model, supported_services[] — and POSTs it to
-NeoHelio cloud whenever the SHA-256 of the JSON changes.
+ha_device_id, ha_device_manufacturer, ha_device_model, supported_services[] —
+and POSTs it to NeoHelio cloud whenever the SHA-256 of the JSON changes.
 
 The cloud-side (services/core /v1/edge-gateways/:serial/manifest) persists
 the manifest on the gateway Device.metadata, then runs the rules-based
@@ -36,6 +41,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import aiohttp
+import websockets
 
 log = logging.getLogger("discovery")
 
@@ -158,11 +164,11 @@ class DiscoveryLoop:
         site_token: str,
         refresh_sec: float = DEFAULT_REFRESH_SEC,
     ):
-        # `hass_url` from settings points at the HA WebSocket endpoint —
-        # `ws://supervisor/core/websocket`. The REST API lives one level up at
-        # `http://supervisor/core`. Strip the protocol + `/websocket` suffix
-        # so subsequent `_get_json` calls land at `/core/api/...` not
-        # `/core/websocket/api/...`.
+        # `hass_url` from settings is the HA WebSocket endpoint —
+        # `ws://supervisor/core/websocket`. Keep it for _fetch_registry_via_ws.
+        self._ws_url = hass_url
+        # Derive REST base: strip protocol + `/websocket` suffix so REST calls
+        # land at `http://supervisor/core/api/…` not `…/websocket/api/…`.
         base = hass_url.rstrip("/").replace("ws://", "http://").replace("wss://", "https://")
         if base.endswith("/websocket"):
             base = base[: -len("/websocket")]
@@ -205,15 +211,19 @@ class DiscoveryLoop:
         log.info("discovery: manifest pushed (%s entities, hash=%s…)", len(entities), h[:12])
 
     async def _fetch_all(self):
+        """Fetch all four data sources in parallel.
+
+        States and services are plain REST. Entity and device registries are
+        fetched via WebSocket (the REST endpoints were removed from HA's API)
+        using a short-lived connection so it doesn't interfere with the long-
+        lived subscription in ha_client.py.
+        """
         headers = {"Authorization": f"Bearer {self._hass_token}"}
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as s:
             states_task = self._get_json(s, "/api/states", headers)
-            er_task = self._get_json(s, "/api/config/entity_registry/list", headers)
-            dr_task = self._get_json(s, "/api/config/device_registry/list", headers)
             services_task = self._get_json(s, "/api/services", headers)
-            states, er, dr, services = await asyncio.gather(
-                states_task, er_task, dr_task, services_task,
-            )
+            states, services = await asyncio.gather(states_task, services_task)
+        er, dr = await self._fetch_registry_via_ws()
         return (
             states if isinstance(states, list) else [],
             er if isinstance(er, list) else [],
@@ -221,21 +231,65 @@ class DiscoveryLoop:
             services if (isinstance(services, dict) or isinstance(services, list)) else {},
         )
 
+    async def _fetch_registry_via_ws(self) -> tuple[list[dict], list[dict]]:
+        """Fetch entity and device registries via HA's WebSocket API.
+
+        `config/entity_registry/list` and `config/device_registry/list` are
+        WebSocket-only commands in current HA — their REST counterparts 404.
+        Opens a short-lived WS connection, authenticates, sends both commands
+        in parallel, collects results, then closes.
+
+        Returns (entity_registry, device_registry). On any error returns
+        ([], []) so the manifest degrades gracefully — states + services still
+        flow and the manifest is uploaded without device-metadata fields.
+        """
+        try:
+            async with websockets.connect(self._ws_url, max_size=16 * 1024 * 1024) as ws:
+                # Auth handshake (mirrors ha_client.py pattern).
+                hello = json.loads(await ws.recv())
+                if hello.get("type") != "auth_required":
+                    log.warning("registry WS: unexpected greeting type=%s", hello.get("type"))
+                    return [], []
+                await ws.send(json.dumps({"type": "auth", "access_token": self._hass_token}))
+                auth_msg = json.loads(await ws.recv())
+                if auth_msg.get("type") != "auth_ok":
+                    log.warning("registry WS: auth rejected: %s", auth_msg.get("type"))
+                    return [], []
+
+                # Send both list commands back-to-back (no need to wait between).
+                await ws.send(json.dumps({"id": 1, "type": "config/entity_registry/list"}))
+                await ws.send(json.dumps({"id": 2, "type": "config/device_registry/list"}))
+
+                # Collect exactly two result frames (may arrive out of order;
+                # other message types such as `pong` are silently skipped).
+                results: dict[int, list] = {}
+                deadline = asyncio.get_event_loop().time() + 20.0
+                while len(results) < 2:
+                    remaining = deadline - asyncio.get_event_loop().time()
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError("registry WS: timed out waiting for results")
+                    raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
+                    msg = json.loads(raw)
+                    if msg.get("type") == "result" and msg.get("id") in (1, 2):
+                        if not msg.get("success"):
+                            log.warning("registry WS: command id=%d failed: %s", msg["id"], msg)
+                            results[msg["id"]] = []
+                        else:
+                            results[msg["id"]] = msg.get("result") or []
+            er = results.get(1, [])
+            dr = results.get(2, [])
+            log.debug("registry WS: fetched %d entities, %d devices", len(er), len(dr))
+            return er, dr
+        except (asyncio.TimeoutError, OSError, websockets.exceptions.WebSocketException) as e:
+            log.warning("registry WS fetch failed (%s) — manifest will lack device metadata", e)
+            return [], []
+        except Exception as e:  # noqa: BLE001
+            log.warning("registry WS fetch unexpected error (%s) — continuing", e)
+            return [], []
+
     async def _get_json(self, session: aiohttp.ClientSession, path: str, headers: dict):
-        # `/api/config/{entity,device}_registry/list` are NOT REST endpoints in
-        # current HA — they're WebSocket-only commands. Returning [] on 404
-        # keeps the manifest viable (states + services still ship) while we
-        # plan the WS-based fetcher. Without this, the entire discovery
-        # refresh aborts and no manifest ever reaches the cloud.
         url = f"{self._hass_url}{path}"
         async with session.get(url, headers=headers) as r:
-            if r.status == 404:
-                log.warning(
-                    "HA %s returned 404 — endpoint unavailable, treating as empty. "
-                    "Manifest will lack registry-derived fields.",
-                    path,
-                )
-                return []
             if r.status >= 400:
                 raise RuntimeError(f"HA {path} returned HTTP {r.status}")
             return await r.json()

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.9 — 2026-05-12
+
+- **Feature**: HA WebSocket registry fetcher. Entity and device registries
+  (`config/entity_registry/list`, `config/device_registry/list`) are now
+  fetched via a short-lived WebSocket connection instead of the REST API,
+  which removed those endpoints. The manifest now carries full
+  `integration_platform`, `ha_device_manufacturer`, and `ha_device_model`
+  fields for every entity — the classifier uses these to propose more
+  accurate Blueprint mappings (e.g. Deye inverter entities get PV_PRODUCTION
+  + correct device grouping). Degrades gracefully: on WS failure the manifest
+  is still uploaded with states + services data and no device metadata.
+
 ## 0.1.8 — 2026-05-12
 
 - **Breaking-good**: the NeoHelio Credentials bootstrap addon is no longer
