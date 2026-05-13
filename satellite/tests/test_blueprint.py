@@ -222,3 +222,31 @@ class TestBlueprintCacheChangeListeners:
         # Bypass HTTP — wire current directly the way fetch_once would.
         cache._current = bp  # noqa: SLF001
         assert cache.current_flush_interval_sec() == 42
+
+
+class TestFieldTypeParsing:
+    """field_type controls whether the mapper treats an entity's value as a
+    float (numeric, default) or a raw string (enum/alarm fields)."""
+
+    def test_field_type_defaults_to_numeric(self):
+        bp = _parse(_payload({"entity_id": "sensor.soc", "device_external_id": "d",
+                               "field": "battery_soc_pct"}))
+        assert bp.entities[0].field_type == "numeric"
+
+    def test_field_type_string_is_parsed(self):
+        bp = _parse(_payload({"entity_id": "sensor.alarm", "device_external_id": "d",
+                               "field": "device_alarm", "field_type": "string"}))
+        assert bp.entities[0].field_type == "string"
+
+    def test_field_type_numeric_explicit(self):
+        bp = _parse(_payload({"entity_id": "sensor.power", "device_external_id": "d",
+                               "field": "ac_power_kw", "field_type": "numeric"}))
+        assert bp.entities[0].field_type == "numeric"
+
+    def test_field_type_unknown_falls_back_to_numeric(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING, logger="blueprint"):
+            bp = _parse(_payload({"entity_id": "sensor.x", "device_external_id": "d",
+                                   "field": "ac_power_kw", "field_type": "boolean"}))
+        assert bp.entities[0].field_type == "numeric"
+        assert any("unsupported field_type" in r.message for r in caplog.records)

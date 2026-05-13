@@ -422,3 +422,71 @@ class TestStateBucketBackwardsCompatibility:
             bucket.ingest("sensor.power_w", v, {})
         snap = bucket.snapshot()
         assert snap["inv-1"]["ac_power_kw"] == pytest.approx(10.0)  # 10000 W -> 10 kW
+
+
+class TestStringFields:
+    """field_type='string' entities bypass the numeric accumulator path.
+    They always use 'last' semantics and are never cleared between flushes."""
+
+    def _str_spec(self, entity_id: str, field: str, device: str = "inv-1") -> EntitySpec:
+        return EntitySpec(
+            entity_id=entity_id,
+            device_external_id=device,
+            device_type="INVERTER",
+            field=field,
+            field_type="string",
+        )
+
+    def test_string_value_appears_in_snapshot(self):
+        spec = self._str_spec("sensor.alarm", "device_alarm")
+        bucket = StateBucket(_bp(spec))
+        bucket.ingest("sensor.alarm", "GROUND_FAULT", {})
+        snap = bucket.snapshot()
+        assert snap["inv-1"]["device_alarm"] == "GROUND_FAULT"
+
+    def test_ha_unavailable_filtered_for_string(self):
+        spec = self._str_spec("sensor.alarm", "device_alarm")
+        bucket = StateBucket(_bp(spec))
+        for sentinel in ("unavailable", "unknown", "", "none", "null"):
+            bucket.ingest("sensor.alarm", sentinel, {})
+        assert bucket.snapshot() == {}
+
+    def test_string_persists_across_flushes(self):
+        """String 'last' values must survive snapshot() the same way numeric
+        'last' values do — the Live Dashboard relies on slow-changing fields
+        (charge-status, fault codes) staying present across poll windows."""
+        spec = self._str_spec("sensor.charge_status", "battery_charge_status")
+        bucket = StateBucket(_bp(spec))
+        bucket.ingest("sensor.charge_status", "Charging", {})
+        bucket.snapshot()   # first flush — must not clear the value
+        snap = bucket.snapshot()
+        assert snap["inv-1"]["battery_charge_status"] == "Charging"
+
+    def test_string_latest_value_wins(self):
+        spec = self._str_spec("sensor.fault", "device_fault")
+        bucket = StateBucket(_bp(spec))
+        bucket.ingest("sensor.fault", "OVER_TEMP", {})
+        bucket.ingest("sensor.fault", "GROUND_FAULT", {})
+        snap = bucket.snapshot()
+        assert snap["inv-1"]["device_fault"] == "GROUND_FAULT"
+
+    def test_string_and_numeric_fields_coexist_on_same_device(self):
+        numeric = EntitySpec(
+            entity_id="sensor.soc", device_external_id="bat-1",
+            device_type="BATTERY", field="battery_soc_pct",
+        )
+        string_spec = EntitySpec(
+            entity_id="sensor.charge_status", device_external_id="bat-1",
+            device_type="BATTERY", field="battery_charge_status",
+            field_type="string",
+        )
+        bp = Blueprint(
+            schema_version=1, site_id="s", tenant_id="t", device_id="g",
+            entities=[numeric, string_spec],
+        )
+        bucket = StateBucket(bp)
+        bucket.ingest("sensor.soc", "78.5", {})
+        bucket.ingest("sensor.charge_status", "Discharging", {})
+        snap = bucket.snapshot()
+        assert snap["bat-1"]["battery_soc_pct"] == pytest.approx(78.5)
+        assert snap["bat-1"]["battery_charge_status"] == "Discharging"

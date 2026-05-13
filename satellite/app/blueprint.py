@@ -76,6 +76,10 @@ class EntitySpec:
     # historical behaviour and stays the default for HA-path backwards
     # compatibility. SunSpec-mode blueprints set this per-field.
     aggregation: str = 'last'
+    # 'numeric' (default) — value coerced to float before accumulation.
+    # 'string'  — raw HA state string passed through; only 'last' aggregation
+    #             makes sense (alarms, charge-status enums, fault codes).
+    field_type: str = 'numeric'
 
 
 @dataclass
@@ -135,6 +139,13 @@ def _parse(data: dict) -> Blueprint:
                 e.get("entity_id", "<unknown>"), agg,
             )
             agg = "last"
+        ft = e.get("field_type", "numeric")
+        if ft not in ("numeric", "string"):
+            log.warning(
+                "blueprint entity %s has unsupported field_type %r; falling back to 'numeric'",
+                e.get("entity_id", "<unknown>"), ft,
+            )
+            ft = "numeric"
         entities.append(EntitySpec(
             entity_id=e["entity_id"],
             device_external_id=e["device_external_id"],
@@ -143,6 +154,7 @@ def _parse(data: dict) -> Blueprint:
             scale=float(t.get("scale", 1.0)),
             offset=float(t.get("offset", 0.0)),
             aggregation=agg,
+            field_type=ft,
         ))
     return Blueprint(
         schema_version=int(data.get("schema_version", 1)),

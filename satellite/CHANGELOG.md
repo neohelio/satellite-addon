@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.10 — 2026-05-13
+
+- **Feature**: string field support in blueprint mapper. Enum fields
+  (`battery_charge_status`, `device_alarm`, `device_fault`) now flow through
+  the mapper unchanged instead of being silently dropped by the numeric coerce
+  path. Blueprint entries declare `"field_type": "string"` to opt in; numeric
+  is the default and unchanged.
+- **Blueprint**: 12 new entity→Silver mappings for sat-dpzwsj covering battery
+  capacity, inverter losses, lifetime energy totals, external CT clamp power,
+  generator output, and alarm/fault strings. Three new device records added
+  (inverter_external_ct1, inverter_external_ct2, inverter_generator).
+
 ## 0.1.9 — 2026-05-12
 
 - **Feature**: HA WebSocket registry fetcher. Entity and device registries

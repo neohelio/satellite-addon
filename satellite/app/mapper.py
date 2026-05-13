@@ -30,19 +30,33 @@ from blueprint import Blueprint, EntitySpec
 log = logging.getLogger("mapper")
 
 
+_HA_NON_VALUES = frozenset({"unavailable", "unknown", "none", "null", ""})
+
+
 def _coerce_number(value: str | float | int | None) -> float | None:
     if value is None: return None
     if isinstance(value, (int, float)):
         return float(value) if math.isfinite(value) else None
     s = str(value).strip()
     # HA uses 'unavailable' / 'unknown' / 'on' / 'off' for non-numeric states.
-    if not s or s.lower() in {"unavailable", "unknown", "none", "null"}:
+    if s.lower() in _HA_NON_VALUES:
         return None
     try:
         f = float(s)
         return f if math.isfinite(f) else None
     except (TypeError, ValueError):
         return None
+
+
+def _coerce_string(value: str | None) -> str | None:
+    """Return a clean string value, or None for HA sentinel non-values.
+
+    Used for enum/alarm fields (battery_charge_status, device_alarm, device_fault)
+    where the HA state is a meaningful string, not a float."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    return None if s.lower() in _HA_NON_VALUES else s
 
 
 def apply_transform(value: float, spec: EntitySpec) -> float:
@@ -158,6 +172,12 @@ class StateBucket:
       call site. Aggregating modes ('avg' / 'max' / 'min' / 'sum') start
       each new poll window with a clean counter.
 
+    String fields (field_type='string') bypass the numeric accumulator path
+    entirely. They always use 'last' semantics — the most recent non-sentinel
+    string is stored and never cleared between flushes, mirroring 'last'-mode
+    numeric behaviour. Only 'last' aggregation is meaningful for enum/alarm
+    fields (battery_charge_status, device_alarm, device_fault).
+
     The bucket is also NOT rebuilt when the cloud-pushed Blueprint refreshes
     — we update the entity→field lookup in place via `update_blueprint` so
     the same accumulators continue to receive ingests across blueprint
@@ -167,8 +187,10 @@ class StateBucket:
     def __init__(self, blueprint: Blueprint):
         self._bp = blueprint
         self._lookup = blueprint.by_entity()
-        # device_external_id → { field: Accumulator }
+        # device_external_id → { field: Accumulator }  (numeric fields)
         self._buf: dict[str, dict[str, Accumulator]] = {}
+        # device_external_id → { field: str }  (string 'last' fields)
+        self._str_buf: dict[str, dict[str, str]] = {}
 
     def update_blueprint(self, blueprint: Blueprint) -> None:
         """Swap in a new Blueprint without touching accumulator state.
@@ -200,18 +222,24 @@ class StateBucket:
         spec = self._lookup.get(entity_id)
         if spec is None:
             return
-        v = _coerce_number(state_value)
-        if v is None:
-            return
-        v = apply_transform(v, spec)
-        dev_buf = self._buf.setdefault(spec.device_external_id, {})
-        acc = dev_buf.get(spec.field)
-        if acc is None or acc.mode != spec.aggregation:
-            acc = Accumulator(spec.aggregation)
-            dev_buf[spec.field] = acc
-        acc.add(v)
+        if spec.field_type == "string":
+            s = _coerce_string(state_value)
+            if s is None:
+                return
+            self._str_buf.setdefault(spec.device_external_id, {})[spec.field] = s
+        else:
+            v = _coerce_number(state_value)
+            if v is None:
+                return
+            v = apply_transform(v, spec)
+            dev_buf = self._buf.setdefault(spec.device_external_id, {})
+            acc = dev_buf.get(spec.field)
+            if acc is None or acc.mode != spec.aggregation:
+                acc = Accumulator(spec.aggregation)
+                dev_buf[spec.field] = acc
+            acc.add(v)
 
-    def snapshot(self) -> dict[str, dict[str, float]]:
+    def snapshot(self) -> dict[str, dict[str, float | str]]:
         """Emit current values per (device, field), then reset window state.
 
         Fields whose accumulator has no value yet (aggregating modes that
@@ -220,10 +248,14 @@ class StateBucket:
         Silver anyway. 'last'-mode fields with a stored value are always
         emitted because the HA-path Live Dashboard relies on slow-changing
         fields persisting across flushes.
+
+        String fields are merged in after numeric fields. They use implicit
+        'last' semantics and are never cleared (same guarantee as numeric
+        'last' mode).
         """
-        out: dict[str, dict[str, float]] = {}
+        out: dict[str, dict[str, float | str]] = {}
         for dev, fields in self._buf.items():
-            row: dict[str, float] = {}
+            row: dict[str, float | str] = {}
             for fname, acc in fields.items():
                 v = acc.value()
                 if v is not None:
@@ -231,6 +263,10 @@ class StateBucket:
                 acc.reset()  # no-op for 'last'; clears window for aggregating modes
             if row:
                 out[dev] = row
+        # Merge string 'last' fields — never cleared, always emitted if present.
+        for dev, fields in self._str_buf.items():
+            if fields:
+                out.setdefault(dev, {}).update(fields)
         return out
 
     def device_types(self) -> dict[str, str]:
