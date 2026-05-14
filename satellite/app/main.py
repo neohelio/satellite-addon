@@ -21,6 +21,7 @@ import aiohttp
 
 import config
 from blueprint import Blueprint, BlueprintCache
+from commands import CommandExecutor
 from discovery import DiscoveryLoop
 from ha_client import HassWebsocket
 from live_uplink import LiveUplink
@@ -44,7 +45,7 @@ async def _register_with_cloud(settings: config.Settings) -> None:
     payload = {
         "gateway_serial": settings.gateway_serial,
         "agent": "satellite-addon",
-        "agent_version": "0.1.9",
+        "agent_version": "0.2.0",
         "registered_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     headers = {
@@ -87,7 +88,7 @@ async def main_async() -> None:
     _setup_logging(settings.log_level)
     log = logging.getLogger("main")
 
-    log.info("NeoHelio Satellite v0.1.9 — gateway=%s url=%s",
+    log.info("NeoHelio Satellite v0.2.0 — gateway=%s url=%s",
              settings.gateway_serial, settings.neohelio_url)
 
     # Initial registration; non-fatal so we keep running even if cloud is down.
@@ -121,6 +122,11 @@ async def main_async() -> None:
     if relay_url:
         live = LiveUplink(relay_url, settings.site_token, settings.gateway_serial)
         log.info("live tee enabled → %s", relay_url)
+        # Phase C — register the HA command executor. Cloud-issued control
+        # commands flow inbound over the same WS the live tee already
+        # maintains. The executor uses the existing HA token + URL.
+        live.set_command_executor(CommandExecutor(settings.hass_url, settings.hass_token))
+        log.info("HA command executor wired (Phase C control path active)")
     else:
         log.info("live tee disabled — no realtime_relay_url configured")
 

@@ -91,11 +91,21 @@ class LiveUplink:
         self._manifest_hash: str = "pending-phase-2"
         # Toggle so test harnesses can drain the queue synchronously.
         self._stop_requested = False
+        # Phase C — set from main.py. The receiver invokes this on every
+        # inbound `command` frame and sends back a `command_ack`. None means
+        # commands will be NACKed with "no executor configured".
+        self._command_executor = None  # type: ignore[assignment]
 
     # ── Public API ───────────────────────────────────────────────────────────
 
     def set_manifest_hash(self, manifest_hash: str) -> None:
         self._manifest_hash = manifest_hash
+
+    def set_command_executor(self, executor) -> None:
+        """Register the Phase C HA service caller. main.py wires the
+        CommandExecutor instance here so it stays optional — addons running
+        without a configured HA token still ship state frames."""
+        self._command_executor = executor
 
     def enqueue(
         self,
@@ -241,8 +251,26 @@ class LiveUplink:
                     log.info("live_uplink: relay requested snapshot — Phase 1 ignores")
                     continue
                 if t == "command":
-                    # Phase 3.
-                    log.debug("live_uplink: command frame received (Phase 3) — ignoring")
+                    # Phase C — invoke the executor and send the ack on the
+                    # same socket. Spawn as a task so a slow HA service call
+                    # doesn't block subsequent frames (heartbeats, more commands).
+                    cmd_id = frame.get("command_id")
+                    if not isinstance(cmd_id, str) or not cmd_id:
+                        log.warning("live_uplink: command frame missing command_id")
+                        continue
+                    if self._command_executor is None:
+                        ack = {
+                            "type": "command_ack",
+                            "command_id": cmd_id,
+                            "ok": False,
+                            "error": "no command executor configured",
+                        }
+                        try:
+                            await ws.send_str(json.dumps(ack))
+                        except Exception as e:  # noqa: BLE001
+                            log.warning("live_uplink: ack send failed: %s", e)
+                        continue
+                    asyncio.create_task(self._handle_command(ws, frame))
                     continue
                 log.debug("live_uplink: unknown frame type=%s", t)
             elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
@@ -250,6 +278,28 @@ class LiveUplink:
                 return
             elif msg.type == aiohttp.WSMsgType.ERROR:
                 raise RuntimeError(f"live_uplink WS error: {ws.exception()}")
+
+
+    async def _handle_command(self, ws: aiohttp.ClientWebSocketResponse, frame: dict) -> None:
+        """Run the inbound command through the executor and send the ack on
+        the same WS. Exceptions in the executor are translated into a
+        `ok=false` ack so the cloud always gets a response within its
+        timeout window."""
+        cmd_id = frame.get("command_id")
+        try:
+            result = await self._command_executor.execute(frame)
+        except Exception as e:  # noqa: BLE001
+            log.exception("live_uplink: command executor raised")
+            result = {"ok": False, "error": f"executor raised: {e}"}
+        ack = {
+            "type": "command_ack",
+            "command_id": cmd_id,
+            **result,
+        }
+        try:
+            await ws.send_str(json.dumps(ack))
+        except Exception as e:  # noqa: BLE001
+            log.warning("live_uplink: command_ack send failed: %s", e)
 
 
 class _AuthRejected(Exception):

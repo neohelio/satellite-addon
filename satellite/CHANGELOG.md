@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 — 2026-05-14
+
+- **Feature (Phase C)**: HA control commands over the live-uplink WebSocket.
+  NeoHelio cloud can now flip switches, lights, and HVAC setpoints from the
+  Loads drilldown. Inbound `command` frames arrive on the existing realtime
+  socket; the new `commands.CommandExecutor` calls
+  `POST /api/services/{domain}/{service}` against HA and replies with a
+  `command_ack` frame carrying the result. Domain allowlist: `switch`,
+  `light`, `climate`, `fan`, `cover` — anything else is rejected at the
+  satellite for defence-in-depth even though cloud already gates by
+  per-device `dashboard_control_enabled`.
+
 ## 0.1.10 — 2026-05-13
 
 - **Feature**: string field support in blueprint mapper. Enum fields
